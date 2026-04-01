@@ -6,14 +6,14 @@
   "description": "Local Apple Contacts MCP server backed by a Contacts.framework helper app.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "build:helper-app": "xcodebuild -project ContactsMCPHelperApp/ContactsMCPHelperApp.xcodeproj -scheme ContactsMCPHelperApp -configuration Release -derivedDataPath ContactsMCPHelperApp/build",
-    "build:helper-app:ci": "xcodebuild -project ContactsMCPHelperApp/ContactsMCPHelperApp.xcodeproj -scheme ContactsMCPHelperApp -configuration Release -derivedDataPath ContactsMCPHelperApp/build CODE_SIGNING_ALLOWED=NO",
+    "build:helper-app": "./scripts/build-helper-app.sh",
+    "build:helper-app:ci": "xcodebuild -project ContactsMCPHelperApp/ContactsMCPHelperApp.xcodeproj -scheme ContactsMCPHelperApp -configuration Release -derivedDataPath ContactsMCPHelperApp/build-ci CODE_SIGNING_ALLOWED=NO",
     "check": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "node --import tsx --test test/**/*.test.ts",
     "test:live": "node --import tsx scripts/live-smoke.ts",
-    "verify": "npm run test && npm run check && npm run build && npm run build:helper-app"
+    "verify": "npm run test && npm run check && npm run build && npm run build:helper-app:ci"
   },
   "engines": {
     "node": ">=20"

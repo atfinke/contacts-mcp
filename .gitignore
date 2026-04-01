@@ -1,6 +1,7 @@
 node_modules/
 dist/
 ContactsMCPHelperApp/build/
+ContactsMCPHelperApp/build-ci/
 .DS_Store
 **/.DS_Store
 *.xcuserstate
