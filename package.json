@@ -1,0 +1,30 @@
+{
+  "name": "contacts-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Apple Contacts MCP server backed by a Contacts.framework helper app.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:helper-app": "xcodebuild -project ContactsMCPHelperApp/ContactsMCPHelperApp.xcodeproj -scheme ContactsMCPHelperApp -configuration Release -derivedDataPath ContactsMCPHelperApp/build",
+    "build:helper-app:ci": "xcodebuild -project ContactsMCPHelperApp/ContactsMCPHelperApp.xcodeproj -scheme ContactsMCPHelperApp -configuration Release -derivedDataPath ContactsMCPHelperApp/build CODE_SIGNING_ALLOWED=NO",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node --import tsx --test test/**/*.test.ts",
+    "test:live": "node --import tsx scripts/live-smoke.ts",
+    "verify": "npm run test && npm run check && npm run build && npm run build:helper-app"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsx": "4.21.0",
+    "typescript": "6.0.2"
+  }
+}
