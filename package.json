@@ -11,7 +11,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test test/**/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "test:live": "node --import tsx scripts/live-smoke.ts",
     "verify": "npm run test && npm run check && npm run build && npm run build:helper-app:ci"
   },
