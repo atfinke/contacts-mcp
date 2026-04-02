@@ -22,6 +22,7 @@ async function main(): Promise<void> {
 
   const phoneQuery = process.env.CONTACTS_MCP_SMOKE_PHONE ?? "+19999999999";
   const emailQuery = process.env.CONTACTS_MCP_SMOKE_EMAIL ?? "nobody@example.invalid";
+  const nameQuery = process.env.CONTACTS_MCP_SMOKE_NAME ?? "Nobody";
 
   const lookupPhone = await runHelper("lookup-phone", {
     query: phoneQuery,
@@ -33,7 +34,12 @@ async function main(): Promise<void> {
     "max-results": 3,
   });
 
-  console.log(JSON.stringify({ lookupPhone, lookupEmail }, null, 2));
+  const searchName = await runHelper("search-name", {
+    query: nameQuery,
+    "max-results": 3,
+  });
+
+  console.log(JSON.stringify({ lookupPhone, lookupEmail, searchName }, null, 2));
 }
 
 main().catch((error: unknown) => {

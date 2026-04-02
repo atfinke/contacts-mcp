@@ -56,6 +56,12 @@ struct ContactMatch {
     let score: Int
 }
 
+struct NameMatchInput {
+    let field: String
+    let value: String
+    let fieldScore: Int
+}
+
 @main
 @MainActor
 struct ContactsMCPHelperAppMain {
@@ -63,6 +69,7 @@ struct ContactsMCPHelperAppMain {
         "permissions",
         "lookup-phone",
         "lookup-email",
+        "search-name",
         "get-contact"
     ]
 
@@ -153,7 +160,7 @@ struct ContactsMCPHelperAppMain {
 
     static func parseInvocation(_ rawArguments: [String]) throws -> (command: String, options: [String: String], responsePath: String?) {
         guard let command = rawArguments.first else {
-            throw HelperError.message("Missing command. Use one of: permissions, lookup-phone, lookup-email, get-contact")
+            throw HelperError.message("Missing command. Use one of: permissions, lookup-phone, lookup-email, search-name, get-contact")
         }
 
         var options = try parseOptions(Array(rawArguments.dropFirst()))
@@ -200,6 +207,13 @@ struct ContactsMCPHelperAppMain {
             let query = try requiredStringOption(options, key: "query")
             let maxResults = try maxResultsOption(options)
             let payload = try lookupEmail(store: store, query: query, maxResults: maxResults)
+            return try encodeJSON(payload)
+
+        case "search-name":
+            try ensureReadAccess()
+            let query = try requiredStringOption(options, key: "query")
+            let maxResults = try maxResultsOption(options)
+            let payload = try searchName(store: store, query: query, maxResults: maxResults)
             return try encodeJSON(payload)
 
         case "get-contact":
@@ -352,7 +366,7 @@ struct ContactsMCPHelperAppMain {
                 message: """
                 ContactsMCPHelperApp has Contacts access.
 
-                Return to your MCP client to resolve phone numbers or email addresses against your Apple Contacts data.
+                Return to your MCP client to search names or resolve phone numbers and email addresses against your Apple Contacts data.
                 """
             )
         case "limited":
@@ -522,6 +536,41 @@ struct ContactsMCPHelperAppMain {
         )
     }
 
+    static func searchName(store: CNContactStore, query: String, maxResults: Int) throws -> ContactLookupPayload {
+        let sanitizedQuery = try sanitizeNameQuery(query)
+        let normalizedQuery = normalizedSearchText(sanitizedQuery)
+        let keysToFetch = contactKeysToFetch()
+        let predicate = CNContact.predicateForContacts(matchingName: sanitizedQuery)
+        let predicateMatches = try store.unifiedContacts(matching: predicate, keysToFetch: keysToFetch)
+        var rankedMatches = buildNameMatches(contacts: predicateMatches, normalizedQuery: normalizedQuery)
+
+        if Set(rankedMatches.map { $0.contact.identifier }).count < maxResults {
+            let excludedIdentifiers = Set(predicateMatches.map { $0.identifier })
+            rankedMatches.append(contentsOf: try enumerateAllNameMatches(
+                store: store,
+                normalizedQuery: normalizedQuery,
+                excludingIdentifiers: excludedIdentifiers
+            ))
+        }
+
+        let payloadMatches = uniqueSortedMatches(rankedMatches, maxResults: maxResults).map {
+            payloadFromContact(
+                contact: $0.contact,
+                matchedField: $0.matchedField,
+                matchedValue: $0.matchedValue,
+                matchedLabel: $0.matchedLabel,
+                matchMethod: $0.matchMethod
+            )
+        }
+
+        return ContactLookupPayload(
+            query: query,
+            normalizedQuery: sanitizedQuery,
+            field: "name",
+            matches: payloadMatches
+        )
+    }
+
     static func getContact(store: CNContactStore, contactIdentifier: String) throws -> ContactPayload {
         do {
             let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: contactKeysToFetch())
@@ -571,6 +620,28 @@ struct ContactsMCPHelperAppMain {
                 contacts: [contact],
                 normalizedQuery: normalizedQuery,
                 defaultMatchMethod: "fallback"
+            ))
+        }
+
+        return matches
+    }
+
+    static func enumerateAllNameMatches(
+        store: CNContactStore,
+        normalizedQuery: String,
+        excludingIdentifiers: Set<String>
+    ) throws -> [ContactMatch] {
+        let request = CNContactFetchRequest(keysToFetch: contactKeysToFetch())
+        var matches: [ContactMatch] = []
+
+        try store.enumerateContacts(with: request) { contact, _ in
+            guard !excludingIdentifiers.contains(contact.identifier) else {
+                return
+            }
+
+            matches.append(contentsOf: buildNameMatches(
+                contacts: [contact],
+                normalizedQuery: normalizedQuery
             ))
         }
 
@@ -705,6 +776,149 @@ struct ContactsMCPHelperAppMain {
         return bestMatch
     }
 
+    static func buildNameMatches(contacts: [CNContact], normalizedQuery: String) -> [ContactMatch] {
+        contacts.compactMap { contact in
+            bestNameMatch(for: contact, normalizedQuery: normalizedQuery)
+        }
+    }
+
+    static func bestNameMatch(for contact: CNContact, normalizedQuery: String) -> ContactMatch? {
+        var bestMatch: ContactMatch?
+
+        for input in nameMatchInputs(for: contact) {
+            let normalizedCandidate = normalizedSearchText(input.value)
+            guard let scoredMatch = scoreNameMatch(
+                normalizedQuery: normalizedQuery,
+                normalizedCandidate: normalizedCandidate
+            ) else {
+                continue
+            }
+
+            let candidateMatch = ContactMatch(
+                contact: contact,
+                matchedField: input.field,
+                matchedValue: input.value,
+                matchedLabel: nil,
+                matchMethod: scoredMatch.matchMethod,
+                score: scoredMatch.score + input.fieldScore
+            )
+
+            if let existingBestMatch = bestMatch {
+                if candidateMatch.score > existingBestMatch.score {
+                    bestMatch = candidateMatch
+                }
+            } else {
+                bestMatch = candidateMatch
+            }
+        }
+
+        return bestMatch
+    }
+
+    static func nameMatchInputs(for contact: CNContact) -> [NameMatchInput] {
+        var inputs: [NameMatchInput] = []
+
+        if let fullName = CNContactFormatter.string(from: contact, style: .fullName).flatMap(trimmedOrNil) {
+            inputs.append(NameMatchInput(field: "fullName", value: fullName, fieldScore: 60))
+        }
+
+        if let organizationName = trimmedOrNil(contact.organizationName) {
+            inputs.append(NameMatchInput(field: "organizationName", value: organizationName, fieldScore: 50))
+        }
+
+        if let nickname = trimmedOrNil(contact.nickname) {
+            inputs.append(NameMatchInput(field: "nickname", value: nickname, fieldScore: 45))
+        }
+
+        if let givenName = trimmedOrNil(contact.givenName) {
+            inputs.append(NameMatchInput(field: "givenName", value: givenName, fieldScore: 35))
+        }
+
+        if let familyName = trimmedOrNil(contact.familyName) {
+            inputs.append(NameMatchInput(field: "familyName", value: familyName, fieldScore: 35))
+        }
+
+        if let middleName = trimmedOrNil(contact.middleName) {
+            inputs.append(NameMatchInput(field: "middleName", value: middleName, fieldScore: 20))
+        }
+
+        return inputs
+    }
+
+    static func scoreNameMatch(
+        normalizedQuery: String,
+        normalizedCandidate: String
+    ) -> (score: Int, matchMethod: String)? {
+        guard !normalizedQuery.isEmpty, !normalizedCandidate.isEmpty else {
+            return nil
+        }
+
+        let queryTokens = searchTokens(normalizedQuery)
+        let candidateTokens = searchTokens(normalizedCandidate)
+        let compactQueryLength = normalizedQuery.replacingOccurrences(of: " ", with: "").count
+        let scoreBonus = min(compactQueryLength, 40)
+
+        if normalizedCandidate == normalizedQuery {
+            return (500 + scoreBonus, "exact")
+        }
+
+        if queryTokens.count == 1, candidateTokens.contains(normalizedQuery) {
+            return (440 + scoreBonus, "wordExact")
+        }
+
+        if normalizedCandidate.hasPrefix(normalizedQuery) {
+            return (360 + scoreBonus, "prefix")
+        }
+
+        if allQueryTokensMatchCandidateTokens(
+            queryTokens: queryTokens,
+            candidateTokens: candidateTokens,
+            matcher: { queryToken, candidateToken in
+                candidateToken.hasPrefix(queryToken)
+            }
+        ) {
+            return (320 + scoreBonus, queryTokens.count == 1 ? "wordPrefix" : "tokenPrefix")
+        }
+
+        if compactQueryLength >= 3, normalizedCandidate.contains(normalizedQuery) {
+            return (240 + scoreBonus, "contains")
+        }
+
+        if compactQueryLength >= 3, allQueryTokensMatchCandidateTokens(
+            queryTokens: queryTokens,
+            candidateTokens: candidateTokens,
+            matcher: { queryToken, candidateToken in
+                candidateToken.contains(queryToken)
+            }
+        ) {
+            return (200 + scoreBonus, "tokenContains")
+        }
+
+        return nil
+    }
+
+    static func allQueryTokensMatchCandidateTokens(
+        queryTokens: [String],
+        candidateTokens: [String],
+        matcher: (String, String) -> Bool
+    ) -> Bool {
+        guard !queryTokens.isEmpty else {
+            return false
+        }
+
+        var remainingTokens = candidateTokens
+
+        for queryToken in queryTokens {
+            guard let matchingIndex = remainingTokens.firstIndex(where: { matcher(queryToken, $0) }) else {
+                return false
+            }
+
+            remainingTokens.remove(at: matchingIndex)
+        }
+
+        return true
+    }
+
     static func uniqueSortedMatches(_ matches: [ContactMatch], maxResults: Int) -> [ContactMatch] {
         var bestByIdentifier: [String: ContactMatch] = [:]
 
@@ -828,6 +1042,15 @@ struct ContactsMCPHelperAppMain {
         return sanitized
     }
 
+    static func sanitizeNameQuery(_ query: String) throws -> String {
+        let sanitized = collapseWhitespace(query)
+        guard !sanitized.isEmpty else {
+            throw HelperError.message("Provide a non-empty name query.")
+        }
+
+        return sanitized
+    }
+
     static func stripSchemes(_ value: String, prefixes: [String]) -> String {
         var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -838,6 +1061,25 @@ struct ContactsMCPHelperAppMain {
         }
 
         return normalized
+    }
+
+    static func collapseWhitespace(_ value: String) -> String {
+        value
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    static func normalizedSearchText(_ value: String) -> String {
+        collapseWhitespace(value)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    static func searchTokens(_ value: String) -> [String] {
+        normalizedSearchText(value)
+            .split(separator: " ")
+            .map(String.init)
     }
 
     static func canonicalPhoneDigits(_ value: String) -> String {

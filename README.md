@@ -32,9 +32,10 @@ open ContactsMCPHelperApp/build/Build/Products/Release/ContactsMCPHelperApp.app
 
 When opened directly, the app will request Contacts access and show a status alert. After that initial grant, the MCP tools can read visible contacts normally.
 
-Lookup behavior is intentionally narrow: `contacts_lookup_phone` and `contacts_lookup_email` return zero or more ranked matches, `contacts_get_contact` fetches one unified contact by identifier, and the server does not expose any write path.
+Lookup behavior is intentionally narrow: `contacts_lookup_phone`, `contacts_lookup_email`, and `contacts_search_name` return zero or more ranked matches, `contacts_get_contact` fetches one unified contact by identifier, and the server does not expose any write path.
 
 Phone lookup uses the framework predicate first, then falls back to canonical digit matching when needed. Email lookup uses the framework predicate first, then falls back to exact case-insensitive comparison.
+Name search uses the framework name predicate first, then backfills ranked matches across full name, nickname, organization, and component fields when needed.
 
 ## MCP config
 

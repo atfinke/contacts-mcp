@@ -5,6 +5,7 @@ import { ensureHelperExists, jsonTextResult, runHelper } from "./helper.js";
 import {
   normalizeContactIdentifier,
   normalizeEmailLookupInput,
+  normalizeNameLookupInput,
   normalizePhoneLookupInput,
 } from "./input.js";
 import { APP_NAME, APP_VERSION } from "./meta.js";
@@ -85,6 +86,33 @@ export function createServer(): McpServer {
 
       const result = await runHelper("lookup-email", {
         query: normalizedEmailAddress,
+        "max-results": maxResults ?? 10,
+      });
+
+      return jsonTextResult(result);
+    },
+  );
+
+  server.registerTool(
+    "contacts_search_name",
+    {
+      title: "Search Name",
+      description:
+        "Search Apple Contacts by name, nickname, or organization. Returns zero or more ranked matches.",
+      annotations: {
+        readOnlyHint: true,
+      },
+      inputSchema: {
+        nameQuery: z.string(),
+        ...lookupInputSchema,
+      },
+    },
+    async ({ nameQuery, maxResults }) => {
+      const normalizedNameQuery = normalizeNameLookupInput(nameQuery);
+      await ensureHelperExists();
+
+      const result = await runHelper("search-name", {
+        query: normalizedNameQuery,
         "max-results": maxResults ?? 10,
       });
 

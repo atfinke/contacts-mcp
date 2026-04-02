@@ -1,6 +1,15 @@
 const PHONE_SCHEME_PREFIX = /^(?:tel|sms):/iu;
 const EMAIL_SCHEME_PREFIX = /^mailto:/iu;
 
+export function normalizeNameLookupInput(nameQuery: string): string {
+  const normalized = nameQuery.trim().replace(/\s+/gu, " ");
+  if (!normalized) {
+    throw new Error("Provide a nameQuery.");
+  }
+
+  return normalized;
+}
+
 export function normalizePhoneLookupInput(phoneNumber: string): string {
   const trimmed = phoneNumber.trim();
   if (!trimmed) {

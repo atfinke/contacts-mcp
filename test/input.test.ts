@@ -4,8 +4,17 @@ import assert from "node:assert/strict";
 import {
   normalizeContactIdentifier,
   normalizeEmailLookupInput,
+  normalizeNameLookupInput,
   normalizePhoneLookupInput,
 } from "../src/input.js";
+
+test("normalizeNameLookupInput trims and collapses whitespace", () => {
+  assert.equal(normalizeNameLookupInput("  Mary   Ann  Smith  "), "Mary Ann Smith");
+});
+
+test("normalizeNameLookupInput rejects empty values", () => {
+  assert.throws(() => normalizeNameLookupInput(" \n\t "), /Provide a nameQuery/u);
+});
 
 test("normalizePhoneLookupInput strips supported handle schemes", () => {
   assert.equal(normalizePhoneLookupInput(" tel:+1 (312) 555-0100 "), "+1 (312) 555-0100");
