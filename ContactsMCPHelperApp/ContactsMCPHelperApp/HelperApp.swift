@@ -314,12 +314,14 @@ struct ContactsMCPHelperAppMain {
     }
 
     static func permissionsPayload(store: CNContactStore, prompt: Bool) async throws -> PermissionsPayload {
-        if prompt {
+        let currentStatus = CNContactStore.authorizationStatus(for: .contacts)
+
+        if prompt, currentStatus == .notDetermined {
             prepareForPermissionPrompt()
-            _ = try await requestAccess(store: store)
+            return try await requestAccessAndRefreshPermissions(store: store)
         }
 
-        return permissionsPayload(for: CNContactStore.authorizationStatus(for: .contacts))
+        return permissionsPayload(for: currentStatus)
     }
 
     static func runInteractiveBootstrap() async -> Int32 {
@@ -330,8 +332,7 @@ struct ContactsMCPHelperAppMain {
             var payload = permissionsPayload(for: CNContactStore.authorizationStatus(for: .contacts))
 
             if payload.status == "not_determined" {
-                _ = try await requestAccess(store: store)
-                payload = permissionsPayload(for: CNContactStore.authorizationStatus(for: .contacts))
+                payload = try await requestAccessAndRefreshPermissions(store: store)
             }
 
             presentBootstrapAlert(for: payload)
@@ -426,6 +427,21 @@ struct ContactsMCPHelperAppMain {
                 continuation.resume(returning: granted)
             }
         }
+    }
+
+    static func requestAccessAndRefreshPermissions(store: CNContactStore) async throws -> PermissionsPayload {
+        do {
+            _ = try await requestAccess(store: store)
+        } catch {
+            let updatedPayload = permissionsPayload(for: CNContactStore.authorizationStatus(for: .contacts))
+            if updatedPayload.status != "not_determined" {
+                return updatedPayload
+            }
+
+            throw error
+        }
+
+        return permissionsPayload(for: CNContactStore.authorizationStatus(for: .contacts))
     }
 
     static func permissionsPayload(for status: CNAuthorizationStatus) -> PermissionsPayload {
